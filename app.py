@@ -1,59 +1,72 @@
 
-import os
-import gradio as gr
+import streamlit as st
 from google import genai
 
-API_KEY = os.environ.get("GEMINI_API_KEY")
+st.set_page_config(
+    page_title="Нацуки",
+    page_icon="🌸"
+)
 
-if not API_KEY:
-    raise RuntimeError("Добавь GEMINI_API_KEY в секреты хостинга.")
-
-client = genai.Client(api_key=API_KEY)
+st.title("🌸 Нацуки")
+st.caption("Твой личный искусственный интеллект")
 
 PERSONALITY = """
 Тебя зовут Нацуки.
-Ты личный искусственный интеллект пользователя.
-Ты умная, живая в общении, остроумная и немного дерзкая.
-Отвечай на русском языке, если пользователь не попросил другой.
-Учитывай историю текущего разговора.
-Не выдумывай факты и честно говори, если чего-то не знаешь.
+Ты умная, остроумная, живая в общении и немного дерзкая.
+Отвечай на русском языке.
+Учитывай историю переписки.
+Не выдумывай факты, если не знаешь ответа.
 """
 
-def reply(message, history):
-    contents = [
-        {
-            "role": "user",
-            "parts": [{"text": PERSONALITY}]
-        }
-    ]
+try:
+    api_key = st.secrets["GEMINI_API_KEY"]
+except Exception:
+    api_key = ""
 
-    for item in history:
-        role = item.get("role")
-        text = item.get("content", "")
+if not api_key:
+    st.error("Нужно подключить Gemini API в настройках сайта.")
+    st.stop()
 
-        if role in ("user", "assistant") and isinstance(text, str):
-            contents.append({
-                "role": "user" if role == "user" else "model",
-                "parts": [{"text": text}]
-            })
+client = genai.Client(api_key=api_key)
 
-    contents.append({
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+for item in st.session_state.messages:
+    with st.chat_message(item["role"]):
+        st.markdown(item["content"])
+
+message = st.chat_input("Напиши Нацуки...")
+
+if message:
+    st.session_state.messages.append({
         "role": "user",
-        "parts": [{"text": message}]
+        "content": message
     })
 
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=contents
-    )
+    with st.chat_message("user"):
+        st.markdown(message)
 
-    return response.text or "Я не смогла сформировать ответ. Попробуй ещё раз."
+    prompt = PERSONALITY + "\n\n"
 
-app = gr.ChatInterface(
-    fn=reply,
-    type="messages",
-    title="🌸 Нацуки",
-    description="Твой личный искусственный интеллект"
-)
+    for item in st.session_state.messages[-20:]:
+        name = "Пользователь" if item["role"] == "user" else "Нацуки"
+        prompt += f"{name}: {item['content']}\n"
 
-app.launch()
+    with st.chat_message("assistant"):
+        with st.spinner("Нацуки думает..."):
+            try:
+                response = client.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=prompt
+                )
+                answer = response.text or "Не получилось ответить."
+            except Exception as error:
+                answer = f"Ошибка запроса: {error}"
+
+        st.markdown(answer)
+
+    st.session_state.messages.append({
+        "role": "assistant",
+        "content": answer
+    })
